@@ -1,0 +1,14 @@
+# IPython Notebook
+*.ipynb
+
+# Matlab Data files
+*.mat
+
+# Virtual Environment
+*.env
+**/venv
+.venv
+
+# Covers JetBrains IDEs: IntelliJ, RubyMine, PhpStorm, AppCode, PyCharm
+## Directory-based project format
+.idea/
