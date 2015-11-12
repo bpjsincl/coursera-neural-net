@@ -63,23 +63,23 @@ class NeuralNet(BaseEstimator):
                  init_wt=0.01,
                  validation_ce_after=1000,
                  vocab_size=None,
-                 numwords=None):
+                 num_words=None):
         """Initialize NeuralNet instance with training and visualization params.
 
         Args:
             epochs (int)                : Number of epochs to run.
-            learning_rate (float)       : Learning rate default = 0.1.
-            momentum (float)            : Momentum default = 0.9.
-            numhid1 (int)               : Dimensionality of embedding space default = 50.
-            numhid2 (int)               : Number of units in hidden layer default = 200.
+            learning_rate (float)       : Learning rate.
+            momentum (float)            : Momentum default.
+            numhid1 (int)               : Dimensionality of embedding space.
+            numhid2 (int)               : Number of units in hidden layer.
             init_wt (float)             : Standard deviation of the normal distribution which is sampled to
-                get the initial weights default = 0.01
+                                          get the initial weights
             validation_ce_after (int)   : Show cross-entropy calculation after specified samples during validation
             vocab_size (int)            : Length of vocabulary in dataset.
-            numwords (int)              : Num words used in each training sample (given from dataset).
-                                          In this case, 3
+            num_words (int)             : Num words used in each training sample (given from dataset).
+                                          In the assignment case, there's 3
         """
-        assert vocab_size and numwords
+        assert vocab_size and num_words
 
         # Set Hyper params
         self.epochs = epochs
@@ -91,25 +91,39 @@ class NeuralNet(BaseEstimator):
         self.init_wt = init_wt
         self.show_validation_ce_after = validation_ce_after
 
-        # INITIALIZE WEIGHTS AND BIASES - stored in Model
-        # TODO: initialize all as None and create reset_classifier(..) to avoid passing in numwords and vocab_size
+        # INITIALIZE WEIGHTS AND BIASES
+        self.word_embedding_weights = None
+        self.embed_to_hid_weights = None
+        self.hid_to_output_weights = None
+        self.hid_bias = None
+        self.output_bias = None
+
+        self.word_embedding_weights_delta = None
+        self.embed_to_hid_weights_delta = None
+        self.hid_to_output_weights_delta = None
+        self.hid_bias_delta = None
+        self.output_bias_delta = None
+        self.reset_classifier(vocab_size, num_words)
+
+        # Initialize evaluation params
+        self.tiny = np.exp(-30)
+        self.batch_iteration = 0  # this is count in Matlab code
+        self.trainset_ce = 0.0
+
+    def reset_classifier(self, vocab_size, num_words):
+        """Resets state of the classifier given vocab_size and num_words in dataset.
+        """
         self.word_embedding_weights = self.init_wt * np.random.rand(vocab_size, self.numhid1)
-        self.embed_to_hid_weights = self.init_wt * np.random.rand(numwords * self.numhid1, self.numhid2)
+        self.embed_to_hid_weights = self.init_wt * np.random.rand(num_words * self.numhid1, self.numhid2)
         self.hid_to_output_weights = self.init_wt * np.random.rand(self.numhid2, vocab_size)
         self.hid_bias = np.zeros((self.numhid2, 1))
         self.output_bias = np.zeros((vocab_size, 1))
 
         self.word_embedding_weights_delta = np.zeros((vocab_size, self.numhid1))
-        self.embed_to_hid_weights_delta = np.zeros((numwords * self.numhid1, self.numhid2))
+        self.embed_to_hid_weights_delta = np.zeros((num_words * self.numhid1, self.numhid2))
         self.hid_to_output_weights_delta = np.zeros((self.numhid2, vocab_size))
         self.hid_bias_delta = np.zeros((self.numhid2, 1))
         self.output_bias_delta = np.zeros((vocab_size, 1))
-
-        # Initialize evaluation params
-        self.tiny = np.exp(-30)
-        self.batch_iteration = 0  # this is count in Matlab codes
-        self.trainset_ce = 0.0
-        self.this_chunk_ce = 0.0
 
     def fit(self, X, y):
         """Fit model given matrix X and target y.
@@ -177,7 +191,7 @@ class NeuralNet(BaseEstimator):
                                     hid_to_output_weights_gradient,
                                     hid_bias_gradient,
                                     output_bias_gradient):
-        """UPDATE WEIGHTS AND BIASES.
+        """Update weights and biases
         """
         self.word_embedding_weights_delta = self.momentum * self.word_embedding_weights_delta + \
                                             word_embedding_weights_gradient / float(batch_size)
@@ -206,9 +220,9 @@ class NeuralNet(BaseEstimator):
         Returns:
             struct: contains the learned weights and biases and vocabulary.
         """
+        self.reset_classifier(vocab_size=len(sequences['vocab']), num_words=len(sequences['train']['input']))
         for epoch in xrange(1, self.epochs + 1):
             print 'Epoch %d\n' % epoch
-            self.this_chunk_ce = 0.0
             self.trainset_ce = 0.0
             # LOOP OVER MINI-BATCHES.
             for m, (input_batch, target_batch) in enumerate(zip_safe(sequences['train']['input'].T,
@@ -228,7 +242,7 @@ class NeuralNet(BaseEstimator):
         """This method forward propagates through a neural network.
 
         Args:
-            input_batch (numpy.ndarray)             : The input data as a matrix of size numwords X batchsize where,
+            input_batch (numpy.ndarray)                 : The input data as a matrix of size numwords X batchsize where,
                     *   numwords is the number of words.
                     *   batchsize is the number of data points.
                 So, if input_batch(i, j) = k then the ith word in data point j is word index k of the vocabulary.
@@ -404,7 +418,7 @@ def run_evaluation(data, **estimator_params):
     start_time = time.time()
     sequences = load_data(data, batch_size=100)
     classifier = NeuralNet(vocab_size=len(sequences['vocab']),
-                           numwords=len(sequences['train']['input']),
+                           num_words=len(sequences['train']['input']),
                            **estimator_params)
     classifier.train(sequences)
     print 'Training took %.2f seconds\n', start_time - time.time()
