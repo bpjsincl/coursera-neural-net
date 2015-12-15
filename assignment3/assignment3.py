@@ -1,4 +1,6 @@
 import numpy as np
+import copy
+from numpy.testing import assert_array_equal, assert_allclose
 import matplotlib.pyplot as plt
 
 NUM_INPUT_UNITS = 256
@@ -17,46 +19,45 @@ __all__ = ['a3',
 
 
 def a3(wd_coefficient, n_hid, n_iters, learning_rate, momentum_multiplier, do_early_stopping,
-       mini_batch_size, datas):
+       mini_batch_size, data):
     model = initial_model(n_hid)
-    best_so_far = dict()
     training_batch = dict()
-    # from_data_file = load('data.mat')
-    n_training_cases = np.size(datas['training']['inputs'], 1)
+    n_training_cases = np.size(data['training']['inputs'], 1)
     if n_iters != 0:
         print 'Now testing the gradient on the whole training set... '
-        test_gradient(model, datas['training'], wd_coefficient)
+        test_gradient(model, data['training'], wd_coefficient)
 
     # optimization
     theta = model_to_theta(model)
-    momentum_speed = theta * 0
+    momentum_speed = theta * 0.0
     training_data_losses = []
     validation_data_losses = []
     if do_early_stopping:
-        best_so_far['theta'] = -1  # this will be overwritten soon
+        best_so_far = dict()
+        best_so_far['theta'] = None  # this will be overwritten soon
         best_so_far['validationLoss'] = np.inf
-        best_so_far['afterNIters'] = -1
-    
+        best_so_far['afterNIters'] = None
+
     for optimization_iteration_i in xrange(n_iters):
         model = theta_to_model(theta)
-        
+
         training_batch_start = np.mod((optimization_iteration_i) * mini_batch_size, n_training_cases)
-        training_batch['inputs'] = datas['training']['inputs'][:, training_batch_start: training_batch_start +
+        training_batch['inputs'] = data['training']['inputs'][:, training_batch_start: training_batch_start +
                                                                                         mini_batch_size]
-        training_batch['targets'] = datas['training']['targets'][:, training_batch_start: training_batch_start +
+        training_batch['targets'] = data['training']['targets'][:, training_batch_start: training_batch_start +
                                                                                           mini_batch_size]
         gradient = model_to_theta(d_loss_by_d_model(model, training_batch, wd_coefficient))
-        momentum_speed *= momentum_multiplier - gradient
+        momentum_speed = momentum_speed * momentum_multiplier - gradient
         theta += momentum_speed * learning_rate
 
         model = theta_to_model(theta)
-        training_data_losses += [loss(model, datas['training'], wd_coefficient)]
-        validation_data_losses += [loss(model, datas['validation'], wd_coefficient)]
+        training_data_losses += [loss(model, data['training'], wd_coefficient)]
+        validation_data_losses += [loss(model, data['validation'], wd_coefficient)]
         if do_early_stopping and validation_data_losses[-1] < best_so_far['validationLoss']:
-            best_so_far['theta'] = theta  # this will be overwritten soon
+            best_so_far['theta'] = copy.deepcopy(theta)  # deepcopy avoids memory reference bug
             best_so_far['validationLoss'] = validation_data_losses[-1]
             best_so_far['afterNIters'] = optimization_iteration_i
-        
+
         if np.mod(optimization_iteration_i, round(n_iters / float(NUM_CLASSES))) == 0:
             print 'After {0} optimization iterations, training data loss is {1}, and validation data ' \
                   'loss is {2}'.format(optimization_iteration_i, training_data_losses[-1], validation_data_losses[-1])
@@ -69,8 +70,8 @@ def a3(wd_coefficient, n_hid, n_iters, learning_rate, momentum_multiplier, do_ea
     if do_early_stopping:
         print 'Early stopping: validation loss was lowest after {0} iterations. ' \
               'We chose the model that we had then.'.format(best_so_far['afterNIters'])
-        theta = best_so_far['theta']
-    
+        theta = copy.deepcopy(best_so_far['theta'])  # deepcopy avoids memory reference bug
+
     # the optimization is finished. Now do some reporting.
     model = theta_to_model(theta)
     if n_iters != 0:
@@ -82,15 +83,15 @@ def a3(wd_coefficient, n_hid, n_iters, learning_rate, momentum_multiplier, do_ea
         plt.xlabel('iteration number')
         plt.hold(False)
 
-    datas2 = {'training': datas['training'], 'validation': datas['validation'], 'test': datas['test']}
-    for data_name, data in datas2.iteritems():
-        print 'The loss on the {0} data is {1}'.format(data_name, loss(model, data, wd_coefficient))
+    for data_name, data_segment in data.iteritems():
+        print 'The loss on the {0} data is {1}'.format(data_name, loss(model, data_segment, wd_coefficient))
         if wd_coefficient != 0:
             print 'The classification loss (i.e. without weight decay) ' \
-                  'on the {0} data is {1}'.format(data_name, loss(model, data, 0))
+                  'on the {0} data is {1}'.format(data_name, loss(model, data_segment, 0))
         print 'The classification error rate on the {0} data is {1}'.format(data_name,
-                                                                            classification_performance(model, data))
-    
+                                                                            classification_performance(model,
+                                                                                                       data_segment))
+
 
 def test_gradient(model, data, wd_coefficient):
     base_theta = model_to_theta(model)
@@ -138,15 +139,8 @@ def test_gradient(model, data, wd_coefficient):
         temp = 0.
         for distance, weight in zip(contribution_distances, contribution_weights):
             temp += loss(theta_to_model(base_theta + theta_step * distance), data, wd_coefficient) * weight
-        # print "temp", temp
         fd_here = temp / h
         diff = abs(analytic_here - fd_here)
-        # print "diff", diff
-        # print "correctness_threshold", correctness_threshold
-        # print analytic_here
-        # print fd_here
-        # print
-        # print '#d #e #e #e #e\n', test_index, base_theta(test_index), diff, fd_here, analytic_here)
         if diff > correctness_threshold and diff / float(abs(analytic_here) + abs(fd_here)) > correctness_threshold:
             part_names = ['inputToHid', 'hidToClass']
             raise Exception('Theta element #{0} (part of {1}), with value {2}, has finite difference gradient {3} but '
@@ -202,21 +196,21 @@ def loss(model, data, wd_coefficient):
     hid_input = np.dot(model['inputToHid'], data['inputs'])
     hid_output = logistic(hid_input)
     class_input = np.dot(model['hidToClass'], hid_output)
-    # print class_input
+
     # The following three lines of code implement the softmax.
     # However, it's written differently from what the lectures say.
     # In the lectures, a softmax is described using an exponential divided by a sum of exponentials.
     # What we do here is exactly equivalent (you can check the math or just check it in practice),
     # but this is more numerically stable.
-    # log(sum(np.exp of class_input)) is what we subtract to get properly normalized log class probabilities.
+    # log(sum(exp of class_input)) is what we subtract to get properly normalized log class probabilities.
     # size: <1> by <number of data cases>
     class_normalizer = log_sum_exp_over_rows(class_input)
+    # class_normalizer = class_normalizer * (1. - class_normalizer)
     # log of probability of each class. size: <number of classes, i.e. NUM_CLASSES> by <number of data cases>
     log_class_prob = class_input - np.tile(class_normalizer, (np.size(class_input, 0), 1))
     # probability of each class. Each column (i.e. each case) sums to 1. size: <number of classes,
     # i.e. NUM_CLASSES> by <number of data cases>
     class_prob = np.exp(log_class_prob)
-
     # select the right log class probability using that sum then take the mean over all data cases.
     classification_loss = -np.mean(sum(log_class_prob * data['targets'], 0))
     # weight decay loss. very straightforward: E = 1/2 * wd_coeffecient * theta^2
@@ -244,25 +238,35 @@ def d_loss_by_d_model(model, data, wd_coefficient):
                 However, the contents of those matrices are gradients (d loss by d model parameter),
                 instead of model parameters.
     """
+    ret = dict()
+
     hid_input = np.dot(model['inputToHid'], data['inputs'])
     hid_output = logistic(hid_input)
     class_input = np.dot(model['hidToClass'], hid_output)
+    class_normalizer = log_sum_exp_over_rows(class_input)
+    log_class_prob = class_input - np.tile(class_normalizer, (np.size(class_input, 0), 1))
+    class_prob = np.exp(log_class_prob)
 
-    # classification_loss = -np.mean(sum(log_class_prob * data['targets'], 0))
     # weight decay loss. very straightforward: E = 1/2 * wd_coeffecient * theta^2
-    wd_loss_deriv = model_to_theta(model) * wd_coefficient
-    classification_loss_deriv = 0.0
-    total_loss = wd_loss_deriv + classification_loss_deriv
-    # ret = dict()
-    # ret['inputToHid'] = np.ones(np.shape(model['inputToHid'])) * total_loss
-    # ret['hidToClass'] = np.ones(np.shape(model['hidToClass'])) * total_loss
-    # return ret
-    return theta_to_model(total_loss)
+    error_deriv = class_prob - data['targets']
+    hid_to_output_weights_gradient = np.dot(hid_output, error_deriv.T) / float(np.size(hid_output, axis=1))
+    ret['hidToClass'] = hid_to_output_weights_gradient.T
+
+    backpropagate_error_deriv = np.dot(model['hidToClass'].T, error_deriv)
+    input_to_hidden_weights_gradient = np.dot(data['inputs'], ((1.0 - hid_output) * hid_output *
+                                                               backpropagate_error_deriv).T) / float(np.size(hid_output,
+                                                                                                             axis=1))
+    ret['inputToHid'] = input_to_hidden_weights_gradient.T
+
+    ret['inputToHid'] += model['inputToHid'] * wd_coefficient
+    ret['hidToClass'] += model['hidToClass'] * wd_coefficient
+    return ret
 
 
 def model_to_theta(model):
     """Takes a model (or gradient in model form), and turns it into one long vector. See also theta_to_model."""
-    return np.hstack((model['inputToHid'].flatten(), model['hidToClass'].flatten()))
+    model_copy = copy.deepcopy(model)
+    return np.hstack((model_copy['inputToHid'].flatten(), model_copy['hidToClass'].flatten()))
 
 
 def theta_to_model(theta):
@@ -291,8 +295,7 @@ def classification_performance(model, data):
     # input to the components of the softmax. size: <number of classes, i.e. NUM_CLASSES> by <number of data cases>
     class_input = np.dot(model['hidToClass'], hid_output)
     
-    dump = np.max(class_input)
-    choices = np.argmax(class_input)  # choices is integer: the chosen class, plus 1.
-    dump = np.max(data['targets'])
-    targets = np.argmax(data['targets'])  # targets is integer: the target class, plus 1.
-    return np.mean(np.array(np.array(choices) != np.array(targets), dtype=float))
+    choices = np.argmax(class_input, axis=0)
+    targets = np.argmax(data['targets'], axis=0)
+
+    return np.mean(np.array(choices != targets, dtype=float))
