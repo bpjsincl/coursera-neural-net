@@ -4,8 +4,9 @@
 # IPython Notebook
 *.ipynb
 
-# Matlab Data files
+# Matlab files
 *.mat
+*.m
 
 # Virtual Environment
 *.env
