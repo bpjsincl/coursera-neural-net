@@ -1,9 +1,11 @@
 """Utility functions for Assignments."""
 import scipy.io as sio
+import numpy as np
 
 
 __all__ = ['zip_safe',
-           'loadmat']
+           'loadmat',
+           'logistic']
 
 
 def zip_safe(*lists):
@@ -44,3 +46,7 @@ def _todict(matobj):
         else:
             data[strg] = elem
     return data
+
+
+def logistic(x):
+    return 1. / (1. + np.exp(-x))
