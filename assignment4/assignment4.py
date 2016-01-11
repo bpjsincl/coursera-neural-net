@@ -10,6 +10,8 @@ __all__ = ['A4Run']
 
 
 class A4Helper(object):
+    """Helper class for neural network and rbm classifiers, as well as assignment initalization.
+    """
     def __init__(self):
         """
         Notes:
@@ -19,19 +21,23 @@ class A4Helper(object):
         a4_randomness_source = loadmat(os.path.join(os.getcwd(), 'Data/a4_randomness_source.mat'))
         self.randomness_source = a4_randomness_source['randomness_source']
 
-    @staticmethod
-    def extract_mini_batch(data_set, start_i, n_cases):
-        mini_batch = dict()
-        mini_batch['inputs'] = data_set['inputs'][:, start_i: start_i + n_cases]
-        mini_batch['targets'] = data_set['targets'][:, start_i: start_i + n_cases]
-        return mini_batch
-
     def a4_rand(self, requested_size, seed):
+        """Generates "random" matrix of requested size. Randomness is a function of the provided data source.
+
+        Notes:
+        * This is to reduce true randomness for grading.
+
+        Args:
+            requested_size (tuple)  : Tuple of ints for shape of returned array.
+            seed (int)              : Used to compute start index.
+
+        Returns:
+            (numpy.array)   : Matrix of requested size from randomness source.
+        """
         start_i = int(round(seed) % round(len(self.randomness_source) / 10.0))
         if start_i + np.prod(requested_size) >= len(self.randomness_source):
             raise Exception('a4_rand failed to generate an array of that size (too big)')
-        ret = np.reshape(self.randomness_source[start_i:start_i + np.prod(requested_size)], requested_size)
-        return ret.T
+        return np.reshape(self.randomness_source[start_i:start_i + np.prod(requested_size)], requested_size).T
 
     def sample_bernoulli(self, probabilities, report_calls=False):
         """Compute states of given probability vector.
@@ -49,6 +55,12 @@ class A4Helper(object):
 
     @staticmethod
     def batch(iterable, n=1):
+        """Yields specified number of mini batches (more efficient than extract_mini_batch(..)
+
+        Args:
+            iterable (numpy.array)  : helper function for splitting array into batches.
+            n (int)                 : number of batches.
+        """
         l = np.size(iterable, 1)
         for ndx in range(0, l, n):
             yield iterable[:, ndx:min(ndx + n, l)]
@@ -62,7 +74,7 @@ class A4Helper(object):
 
     @staticmethod
     def configuration_goodness(rbm_w, visible_state, hidden_state):
-        """
+        """Computes negative energy.
 
         Args:
             rbm_w (numpy.array)         : a matrix of size <number of hidden units> by <number of visible units>
@@ -78,7 +90,8 @@ class A4Helper(object):
 
     @staticmethod
     def configuration_goodness_gradient(visible_state, hidden_state):
-        """
+        """Computes gradient of negative energy.
+
         Notes:
         * You don't need the model parameters for this computation.
 
@@ -90,11 +103,7 @@ class A4Helper(object):
                                           by <number of configurations that we're handling in parallel>.
 
         Returns:
-            This returns the gradient of the mean configuration goodness (negative energy, as computed by function
-            <configuration_goodness>) with respect to the model parameters.
-            Thus, the returned value is of the same shape as the model parameters, which by the way are not provided to
-            this function. Notice that we're talking about the mean over data cases (as opposed to the sum over data
-            cases).
+            (numpy.array)   : gradient of negative energy (same shape as as the model parameters)
         """
         return np.dot(hidden_state, visible_state.T) / np.size(visible_state, 1)
 
@@ -102,14 +111,15 @@ class A4Helper(object):
     def hidden_state_to_visible_probabilities(rbm_w, hidden_state):
         """This takes in the (binary) states of the hidden units, and returns the activation probabilities
          of the visible units, conditional on those states.
+
         Args:
             rbm_w (numpy.array)         : a matrix of size <number of hidden units> by <number of visible units>
             hidden_state (numpy.array)  : is a binary matrix of size <number of hidden units> by <number of
                                           configurations that we're handling in parallel>.
 
         Returns:
-            The returned value is a matrix of size <number of visible units> by <number of configurations that we're
-            handling in parallel>.
+            (numpy.array)   : Activation probabilities of visible units. size <number of visible units> by
+                              <number of configurations that we're handling in parallel>.
         """
         return logistic(np.dot(rbm_w.T, hidden_state))
 
@@ -124,8 +134,8 @@ class A4Helper(object):
                                           configurations that we're handling in parallel>.
 
         Returns:
-            The returned value is a matrix of size <number of hidden units> by <number of configurations that we're
-            handling in parallel>.
+            (numpy.array)   : Activation probabilities of hidden units. size <number of visible units> by
+                              <number of configurations that we're handling in parallel>.
         """
 
         return logistic(np.dot(rbm_w, visible_state))
@@ -139,6 +149,7 @@ class A4Helper(object):
     @staticmethod
     def partition_log(w):
         """Computes logarithm (base e) of partition function for given size of rbm (hidden units)
+
         Notes:
         * Answer for question 10
 
@@ -163,7 +174,15 @@ class RBM(BaseEstimator, A4Helper):
                  n_visible=256,
                  train_momentum=0.9,
                  mini_batch_size=100):
-        """
+        """Initialize RBM model.
+
+        Args:
+            training_iters (int)    : number of training iterations
+            lr_rbm (float)          : learning rate for RBM model
+            n_hid (int)             : number of hidden units
+            n_visible (int)         : number of visible units
+            train_momentum (float)  : momentum used in training
+            mini_batch_size (int)   : size of training batches
         """
         super(RBM, self).__init__()
         self.model_shape = (n_hid, n_visible)
@@ -177,14 +196,9 @@ class RBM(BaseEstimator, A4Helper):
         self.gradient = None
 
     def reset_classifier(self):
-        """
+        """Resets the model parameters.
         """
         self.rbm_w = (self.a4_rand(self.model_shape[::-1], np.prod(self.model_shape)) * 2 - 1) * 0.1
-        self.gradient = np.zeros(self.model_shape)
-
-    def reset_model_gradient(self):
-        """
-        """
         self.gradient = np.zeros(self.model_shape)
 
     def fit(self, X, y=None):
@@ -195,12 +209,14 @@ class RBM(BaseEstimator, A4Helper):
 
     def _cd1(self, visible_data):
         """Implements single step contrastive divergence (CD-1).
+
         Args:
             visible_data (numpy.array)  : is a (possibly but not necessarily binary) matrix of
                                           size <number of visible units> by <number of data cases>
 
         Returns:
-            The returned value is the gradient approximation produced by CD-1. It's of the same shape as <rbm_w>.
+            (numpy.array)   : The returned value is the gradient approximation produced by CD-1.
+                              It's of the same shape as <rbm_w>.
         """
         visible_data = self.sample_bernoulli(probabilities=visible_data)  # Question 8
         hidden_probs = self.visible_state_to_hidden_probabilities(rbm_w=self.rbm_w, visible_state=visible_data)
@@ -235,14 +251,13 @@ class RBM(BaseEstimator, A4Helper):
         for i, mini_batch_x in enumerate(self.batch(sequences['inputs'], self.mini_batch_size)):
             if i >= self.n_iterations:
                 break
-            # self.reset_model_gradient()  # ensure model gradient is reset between batches
             self.fit(mini_batch_x)
             momentum_speed = self.train_momentum * momentum_speed + self.gradient
             self.rbm_w += momentum_speed * self.lr_rbm
 
 
 class FFNeuralNet(BaseEstimator, A4Helper):
-    """Implements Assignment 4 using Sklearn framework architecture.
+    """Implements Feedforward Neural Network from Assignment 4.
     """
     def __init__(self,
                  training_iters,
@@ -252,14 +267,16 @@ class FFNeuralNet(BaseEstimator, A4Helper):
                  n_classes=10,
                  train_momentum=0.9,
                  mini_batch_size=100):
-        """
+        """Initialize neural network.
+
         Args:
-            n_hid (int)             : number of hidden units
-            lr_rbm (float)          : learning rate for rbm
-            lr_net (float)          : learning rate for neural net classifier
             training_iters (int)    : number of training iterations
-            n_visible (int)         : number of visible units
+            rbm (RBM)               : RBM model used for pre-training
+            lr_net (float)          : learning rate for neural net classifier
+            n_hid (int)             : number of hidden units
+            n_classes (int)         : number of classes
             train_momentum (float)  : momentum used in training
+            mini_batch_size (int)   : size of training batches
 
         """
         super(FFNeuralNet, self).__init__()
@@ -275,16 +292,13 @@ class FFNeuralNet(BaseEstimator, A4Helper):
         self.d_phi_by_d_input_to_class = None
 
     def reset_classifier(self):
-        """
+        """Resets the model parameters.
         """
         self.model = (self.a4_rand(self.model_shape[::-1], np.prod(self.model_shape)) * 2 - 1) * 0.1
         self.d_phi_by_d_input_to_class = np.zeros(self.model_shape)
 
-    def reset_model_gradient(self):
-        self.d_phi_by_d_input_to_class = np.zeros(self.model_shape)
-
     def fit(self, X, y):
-        """
+        """Fit a model using Classification gradient descent.
         """
         self._classification_phi_gradient(inputs=X, targets=y)
         return self
@@ -303,20 +317,18 @@ class FFNeuralNet(BaseEstimator, A4Helper):
                 The returned gradient is an array of the same shape as the provided <model> parameter.
 
         Returns:
-            numpy.array : matrix of weights of the trained model (hid_to_class)
+            (numpy.array) : matrix of weights of the trained model (hid_to_class)
         """
         self.reset_classifier()
         self.rbm.train(sequences)  # unsupervised pre-training using RBM
 
         # calculate the hidden layer representation of the labeled data, rbm_w is input_to_hid
         hidden_representation = logistic(np.dot(self.rbm.rbm_w, sequences['inputs']))
-        # train hid_to_class
         momentum_speed = np.zeros(self.model_shape)
         for i, (mini_batch_x, mini_batch_y) in enumerate(zip(self.batch(hidden_representation, self.mini_batch_size),
                                                     self.batch(sequences['targets'], self.mini_batch_size))):
             if i >= self.n_iterations:
                 break
-            self.reset_model_gradient()
             self.fit(mini_batch_x, mini_batch_y)
             momentum_speed = self.train_momentum * momentum_speed + self.d_phi_by_d_input_to_class
             self.model += momentum_speed * self.lr_net
@@ -330,7 +342,7 @@ class FFNeuralNet(BaseEstimator, A4Helper):
         """Predict the probability of each class in a given set of sequences.
 
         Returns:
-            numpy.array : class input (size: <number of classes> by <number of data cases>)
+            (numpy.array) : class input (size: <number of classes> by <number of data cases>)
         """
         hid_input = np.dot(self.rbm.rbm_w, x_sequences['inputs'])  # size: <number of hidden units> by <number of data cases>
         hid_output = logistic(hid_input)  # size: <number of hidden units> by <number of data cases>
@@ -340,7 +352,7 @@ class FFNeuralNet(BaseEstimator, A4Helper):
         """Predict the log probability of each class in a given set of sequences.
 
         Returns:
-            numpy.array : log probability of each class (size: <number of classes, i.e. 10> by <number of data cases>)
+            (numpy.array) : log probability of each class (size: <number of classes, i.e. 10> by <number of data cases>)
         """
         class_input = self.predict_sequences_proba(x_sequences)
         return self.predict_log_proba(class_input)
@@ -354,12 +366,15 @@ class FFNeuralNet(BaseEstimator, A4Helper):
         Args:
             class_input (numpy.array)   : probability of each class (see predict_sequences_proba(..))
                                           (size: <1> by <number of data cases>)
+
+        Returns:
+            (numpy.array) : log probability of each class.
         """
         class_normalizer = self.log_sum_exp_over_rows(class_input)
         return class_input - np.tile(class_normalizer, (np.size(class_input, 0), 1))
 
     def compute_error_and_loss(self, sequences, data_name=None):
-        """Computes error rate and loss for given dataset.
+        """Computes error rate and loss for given data set.
 
         Notes:
         * select the right log class probability using that sum then take the mean over all data cases.
@@ -411,8 +426,11 @@ class FFNeuralNet(BaseEstimator, A4Helper):
 
 
 class A4Run(A4Helper):
+    """Runs assignment 4.
+    """
     def __init__(self):
-        """
+        """Initialize data set and all test cases for assignment.
+
         Notes:
         * All sizes requested are transposed to account for column matrix as default vector in matlab.
           a4_rand(..) then returns a transposed matrix to have the correct shape.
@@ -437,6 +455,19 @@ class A4Run(A4Helper):
 
     @staticmethod
     def extract_mini_batch(data_set, start_i, n_cases):
+        """Extract specified region of data.
+
+        Notes:
+        * This is just used for test data initalization and was replaced by batch(..) for use in models
+
+        Args:
+            data_set (numpy.array)  : target data set.
+            start_i (int)           : starting index for mini batch.
+            n_cases (int)           : number of cases to return.
+
+        Returns:
+            (numpy.array)   : data set split into n_case sub arrays.
+        """
         mini_batch = dict()
         mini_batch['inputs'] = data_set['inputs'][:, start_i: start_i + n_cases]
         mini_batch['targets'] = data_set['targets'][:, start_i: start_i + n_cases]
