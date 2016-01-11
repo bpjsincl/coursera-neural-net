@@ -1,16 +1,15 @@
-import copy
 import os
+import matplotlib.pyplot as plt
 
 import numpy as np
-from numpy.testing import assert_array_equal, assert_allclose
-import matplotlib.pyplot as plt
+from sklearn.base import BaseEstimator
 
 from courseraneuralnet.utility.utils import loadmat, logistic
 
-__all__ = ['A4']
+__all__ = ['A4Run']
 
 
-class A4(object):
+class A4Helper(object):
     def __init__(self):
         """
         Notes:
@@ -18,32 +17,7 @@ class A4(object):
           a4_rand(..) then returns a transposed matrix to have the correct shape.
         """
         a4_randomness_source = loadmat(os.path.join(os.getcwd(), 'Data/a4_randomness_source.mat'))
-        data = loadmat(os.path.join(os.getcwd(), 'Data/data.mat'))
         self.randomness_source = a4_randomness_source['randomness_source']
-        self.data_sets = data['data']
-        self.report_calls_to_sample_bernoulli = False
-
-        self.test_rbm_w = self.a4_rand([256, 100], 0) * 2 - 1
-        self.small_test_rbm_w = self.a4_rand([256, 10], 0) * 2 - 1
-
-        self.data_1_case = self.sample_bernoulli(self.extract_mini_batch(self.data_sets['training'], 0, 1)['inputs'])
-        self.data_10_cases = self.sample_bernoulli(self.extract_mini_batch(self.data_sets['training'], 99,
-                                                                           10)['inputs'])
-        self.data_37_cases = self.sample_bernoulli(self.extract_mini_batch(self.data_sets['training'], 199,
-                                                                           37)['inputs'])
-
-        self.test_hidden_state_1_case = self.sample_bernoulli(self.a4_rand([1, 100], 0))
-        self.test_hidden_state_10_cases = self.sample_bernoulli(self.a4_rand([10, 100], 1))
-        self.test_hidden_state_37_cases = self.sample_bernoulli(self.a4_rand([37, 100], 2))
-
-        self.report_calls_to_sample_bernoulli = True
-
-    def a4_rand(self, requested_size, seed):
-        start_i = int(round(seed) % round(len(self.randomness_source) / 10.0))
-        if start_i + np.prod(requested_size) >= len(self.randomness_source):
-            raise Exception('a4_rand failed to generate an array of that size (too big)')
-        ret = np.reshape(self.randomness_source[start_i:start_i + np.prod(requested_size)], requested_size)
-        return ret.T
 
     @staticmethod
     def extract_mini_batch(data_set, start_i, n_cases):
@@ -52,7 +26,14 @@ class A4(object):
         mini_batch['targets'] = data_set['targets'][:, start_i: start_i + n_cases]
         return mini_batch
 
-    def sample_bernoulli(self, probabilities):
+    def a4_rand(self, requested_size, seed):
+        start_i = int(round(seed) % round(len(self.randomness_source) / 10.0))
+        if start_i + np.prod(requested_size) >= len(self.randomness_source):
+            raise Exception('a4_rand failed to generate an array of that size (too big)')
+        ret = np.reshape(self.randomness_source[start_i:start_i + np.prod(requested_size)], requested_size)
+        return ret.T
+
+    def sample_bernoulli(self, probabilities, report_calls=False):
         """Compute states of given probability vector.
 
         Args:
@@ -61,85 +42,16 @@ class A4(object):
         Returns:
             numpy.ndarray : states of given probabilities
         """
-        if self.report_calls_to_sample_bernoulli:
+        if report_calls:
             print 'sample_bernoulli() was called with a matrix of size {0} by {1}.'.format(*np.shape(probabilities))
         seed = np.sum(probabilities)
         return np.array(probabilities > self.a4_rand(np.shape(probabilities)[::-1], seed), dtype=float)
 
-    def a4_main(self, n_hid, lr_rbm, lr_classification, n_iterations):
-        # first, train the rbm
-        self.report_calls_to_sample_bernoulli = False
-        if np.prod(np.shape(self.data_sets)) != 1:
-            raise Exception('You must run a4_init before you do anything else.')
-
-        rbm_w = self.optimize((n_hid, 256),
-                              self.cd1,
-                              self.data_sets['training'],
-                              lr_rbm,
-                              n_iterations,
-                              use_inputs_only=True)
-        # rbm_w is now a weight matrix of <n_hid> by <number of visible units, i.e. 256>
-        self.show_rbm(rbm_w)
-        input_to_hid = rbm_w
-        # calculate the hidden layer representation of the labeled data
-        hidden_representation = logistic(np.dot(input_to_hid, self.data_sets['training']['inputs']))
-        # train hid_to_class
-        data_2 = dict()
-        data_2['inputs'] = hidden_representation
-        data_2['targets'] = self.data_sets['training']['targets']
-        hid_to_class = self.optimize((10, n_hid),
-                                     self.classification_phi_gradient,
-                                     data_2,
-                                     lr_classification,
-                                     n_iterations,
-                                     use_inputs_only=False)
-
-        # report results
-        for data_name, data in self.data_sets.iteritems():
-            hid_input = np.dot(input_to_hid, data['inputs'])  # size: <number of hidden units> by <number of data cases>
-            hid_output = logistic(hid_input)  # size: <number of hidden units> by <number of data cases>
-            class_input = np.dot(hid_to_class, hid_output)  # size: <number of classes> by <number of data cases>
-            # log(sum(exp of class_input)) is what we subtract to get properly normalized log class probabilities.
-            # size: <1> by <number of data cases>
-            class_normalizer = self.log_sum_exp_over_rows(class_input)
-            # log of probability of each class. size: <number of classes, i.e. 10> by <number of data cases>
-            log_class_prob = class_input - np.tile(class_normalizer, (np.size(class_input, 0), 1))
-            error_rate = np.mean(np.argmax(class_input, axis=0) != np.argmax(data['targets'], axis=0))
-            # scalar. select the right log class probability using that sum then take the mean over all data cases.
-            loss = -np.mean(np.sum(log_class_prob * data['targets'], 0))
-            print ('For the {0} data, the classification cross-entropy loss is {1}, and the classification error '
-                   'rate (i.e. the misclassification rate) is {2}'.format(data_name, loss, error_rate))
-
-        self.report_calls_to_sample_bernoulli = True
-
-    def classification_phi_gradient(self, input_to_class, data):
-        """This returns the gradient of phi (a.k.a. negative the loss) for the <input_to_class> matrix.
-        Notes:
-        * This is about a very simple model: there's an input layer, and a softmax output layer.
-          There are no hidden layers, and no biases.
-
-        Args:
-            input_to_class (numpy.ndarray)  : is a matrix of size <number of classes> by <number of input units>.
-            data (numpy.ndarray)            : has fields .inputs (matrix of size <number of input units> by
-                <number of data cases>) and .targets (matrix of size <number of classes> by <number of data cases>).
-        """
-        # input to the components of the softmax. size: <number of classes> by <number of data cases>
-        class_input = np.dot(input_to_class, data['inputs'])
-        # log(sum(exp)) is what we subtract to get normalized log class probabilities.
-        # size: <1> by <number of data cases>
-        class_normalizer = self.log_sum_exp_over_rows(class_input)
-        # log of probability of each class. size: <number of classes> by <number of data cases>
-        log_class_prob = class_input - np.tile(class_normalizer, (np.size(class_input, 0), 1))
-        # probability of each class. Each column (i.e. each case) sums to 1.
-        # size: <number of classes> by <number of data cases>
-        class_prob = np.exp(log_class_prob)
-        # now: gradient computation
-        # size: <number of classes> by <number of data cases>
-        d_loss_by_d_class_input = -(data['targets'] - class_prob) / np.size(data['inputs'], 1)
-        # size: <number of classes> by <number of input units>
-        d_loss_by_d_input_to_class = np.dot(d_loss_by_d_class_input, data['inputs'].T)
-        d_phi_by_d_input_to_class = -d_loss_by_d_input_to_class
-        return d_phi_by_d_input_to_class
+    @staticmethod
+    def batch(iterable, n=1):
+        l = np.size(iterable, 1)
+        for ndx in range(0, l, n):
+            yield iterable[:, ndx:min(ndx + n, l)]
 
     @staticmethod
     def log_sum_exp_over_rows(matrix):
@@ -148,8 +60,162 @@ class A4(object):
         maxs_big = np.tile(maxs_small, (np.size(matrix, 0), 1))
         return np.log(np.sum(np.exp(matrix - maxs_big), axis=0)) + maxs_small
 
-    def optimize(self, model_shape, gradient_function, training_data, learning_rate, n_iterations, use_inputs_only):
-        """This trains a model that's defined by a single matrix of weights.
+    @staticmethod
+    def configuration_goodness(rbm_w, visible_state, hidden_state):
+        """
+
+        Args:
+            rbm_w (numpy.array)         : a matrix of size <number of hidden units> by <number of visible units>
+            visible_state (numpy.array) : a binary matrix of size <number of visible units> by <number of configurations
+                                          that we're handling in parallel>.
+            hidden_state (numpy.array)  : a binary matrix of size <number of hidden units> by <number of configurations
+                                          that we're handling in parallel>.
+
+        Returns:
+            float: the mean over cases of the goodness (negative energy) of the described configurations.
+        """
+        return np.mean(np.sum(np.dot(rbm_w, visible_state) * hidden_state, 0))
+
+    @staticmethod
+    def configuration_goodness_gradient(visible_state, hidden_state):
+        """
+        Notes:
+        * You don't need the model parameters for this computation.
+
+        Args:
+            visible_state (numpy.array) : is a binary matrix of size <number of visible units> by
+                                          <number of configurations that we're handling in parallel>.
+            hidden_state (numpy.array)  : is a (possibly but not necessarily binary) matrix of size
+                                          <number of hidden units>
+                                          by <number of configurations that we're handling in parallel>.
+
+        Returns:
+            This returns the gradient of the mean configuration goodness (negative energy, as computed by function
+            <configuration_goodness>) with respect to the model parameters.
+            Thus, the returned value is of the same shape as the model parameters, which by the way are not provided to
+            this function. Notice that we're talking about the mean over data cases (as opposed to the sum over data
+            cases).
+        """
+        return np.dot(hidden_state, visible_state.T) / np.size(visible_state, 1)
+
+    @staticmethod
+    def hidden_state_to_visible_probabilities(rbm_w, hidden_state):
+        """This takes in the (binary) states of the hidden units, and returns the activation probabilities
+         of the visible units, conditional on those states.
+        Args:
+            rbm_w (numpy.array)         : a matrix of size <number of hidden units> by <number of visible units>
+            hidden_state (numpy.array)  : is a binary matrix of size <number of hidden units> by <number of
+                                          configurations that we're handling in parallel>.
+
+        Returns:
+            The returned value is a matrix of size <number of visible units> by <number of configurations that we're
+            handling in parallel>.
+        """
+        return logistic(np.dot(rbm_w.T, hidden_state))
+
+    @staticmethod
+    def visible_state_to_hidden_probabilities(rbm_w, visible_state):
+        """This takes in the (binary) states of the visible units, and returns the activation probabilities of the
+        hidden units conditional on those states.
+
+        Args:
+            rbm_w (numpy.array)         : is a matrix of size <number of hidden units> by <number of visible units>
+            visible_state (numpy.array) : is a binary matrix of size <number of visible units> by <number of
+                                          configurations that we're handling in parallel>.
+
+        Returns:
+            The returned value is a matrix of size <number of hidden units> by <number of configurations that we're
+            handling in parallel>.
+        """
+
+        return logistic(np.dot(rbm_w, visible_state))
+
+    @staticmethod
+    def describe_matrix(matrix):
+        print('Describing a matrix of size {0} by {1}. The mean of the elements is {2}. '
+              'The sum of the elements is {3}'.format(np.size(matrix, 0), np.size(matrix, 1), np.mean(matrix),
+                                                      np.sum(matrix)))
+
+    @staticmethod
+    def partition_log(w):
+        """Computes logarithm (base e) of partition function for given size of rbm (hidden units)
+        Notes:
+        * Answer for question 10
+
+        Args:
+            w (numpy.array) : given rbm weight matrix
+
+        Returns:
+            float : log of partition function
+        """
+        dec_2_bin = lambda x, n_bits: np.array(["{0:b}".format(val).zfill(n_bits) for val in x])
+        binary = np.array([list(val) for val in dec_2_bin(range(pow(2, np.size(w, 0))), np.size(w, 0))], dtype=float)
+        return np.log(np.sum(np.prod((np.exp(np.dot(binary, w)) + 1).T, axis=0)))
+
+
+class RBM(BaseEstimator, A4Helper):
+    """Implements pre-training for the RBM using CD-1 gradient function.
+    """
+    def __init__(self,
+                 training_iters,
+                 lr_rbm=0.02,
+                 n_hid=300,
+                 n_visible=256,
+                 train_momentum=0.9,
+                 mini_batch_size=100):
+        """
+        """
+        super(RBM, self).__init__()
+        self.model_shape = (n_hid, n_visible)
+        self.mini_batch_size = mini_batch_size
+        self.lr_rbm = lr_rbm
+        self.n_iterations = training_iters
+        self.train_momentum = train_momentum
+
+        # Model params
+        self.rbm_w = None
+        self.gradient = None
+
+    def reset_classifier(self):
+        """
+        """
+        self.rbm_w = (self.a4_rand(self.model_shape[::-1], np.prod(self.model_shape)) * 2 - 1) * 0.1
+        self.gradient = np.zeros(self.model_shape)
+
+    def reset_model_gradient(self):
+        """
+        """
+        self.gradient = np.zeros(self.model_shape)
+
+    def fit(self, X, y=None):
+        """Fit a model using one step Contrastive Divergence CD-1.
+        """
+        self._cd1(visible_data=X)
+        return self
+
+    def _cd1(self, visible_data):
+        """Implements single step contrastive divergence (CD-1).
+        Args:
+            visible_data (numpy.array)  : is a (possibly but not necessarily binary) matrix of
+                                          size <number of visible units> by <number of data cases>
+
+        Returns:
+            The returned value is the gradient approximation produced by CD-1. It's of the same shape as <rbm_w>.
+        """
+        visible_data = self.sample_bernoulli(probabilities=visible_data)  # Question 8
+        hidden_probs = self.visible_state_to_hidden_probabilities(rbm_w=self.rbm_w, visible_state=visible_data)
+        hidden_states = self.sample_bernoulli(probabilities=hidden_probs)
+        initial = self.configuration_goodness_gradient(visible_state=visible_data, hidden_state=hidden_states)
+        visible_probs = self.hidden_state_to_visible_probabilities(rbm_w=self.rbm_w, hidden_state=hidden_states)
+        visible_states = self.sample_bernoulli(probabilities=visible_probs)
+        hidden_probs = self.visible_state_to_hidden_probabilities(rbm_w=self.rbm_w, visible_state=visible_states)
+        # hidden_states = self.sample_bernoulli(probabilities=hidden_probs)  # Question 6
+        reconstruction = self.configuration_goodness_gradient(visible_state=visible_states, hidden_state=hidden_probs)
+
+        self.gradient = initial - reconstruction
+
+    def train(self, sequences):
+        """Implements optimize(..) from assignment. This trains a model that's defined by a single matrix of weights.
 
         Notes:
         * This uses mini-batches of size 100, momentum of 0.9, no weight decay, and no early stopping.
@@ -162,42 +228,234 @@ class A4(object):
                 The returned gradient is an array of the same shape as the provided <model> parameter.
 
         Returns:
-            nd.array : matrix of weights of the trained model
+            numpy.array : matrix of weights of the trained model
         """
-        model = (self.a4_rand(model_shape[::-1], np.prod(model_shape)) * 2 - 1) * 0.1
-        momentum_speed = np.zeros(model_shape)
-        mini_batch_size = 100
-        start_of_next_mini_batch = 0
-        for iteration_number in xrange(n_iterations):
-            mini_batch = self.extract_mini_batch(training_data, start_of_next_mini_batch, mini_batch_size)
-            start_of_next_mini_batch = np.mod(start_of_next_mini_batch + mini_batch_size,
-                                              np.size(training_data['inputs'], 1))
-            mini_batch = mini_batch['inputs'] if use_inputs_only else mini_batch
-            gradient = gradient_function(model, mini_batch)
-            momentum_speed = 0.9 * momentum_speed + gradient
-            model = model + momentum_speed * learning_rate
-        return model
+        self.reset_classifier()
+        momentum_speed = np.zeros(self.model_shape)
+        for i, mini_batch_x in enumerate(self.batch(sequences['inputs'], self.mini_batch_size)):
+            if i >= self.n_iterations:
+                break
+            # self.reset_model_gradient()  # ensure model gradient is reset between batches
+            self.fit(mini_batch_x)
+            momentum_speed = self.train_momentum * momentum_speed + self.gradient
+            self.rbm_w += momentum_speed * self.lr_rbm
 
-    def cd1(self, rbm_w, visible_data):
+
+class FFNeuralNet(BaseEstimator, A4Helper):
+    """Implements Assignment 4 using Sklearn framework architecture.
+    """
+    def __init__(self,
+                 training_iters,
+                 rbm,
+                 lr_net=0.02,
+                 n_hid=300,
+                 n_classes=10,
+                 train_momentum=0.9,
+                 mini_batch_size=100):
         """
         Args:
-            rbm_w (numpy.array)         : a matrix of size <number of hidden units> by <number of visible units>
-            visible_data (numpy.array)  : is a (possibly but not necessarily binary) matrix of
-                                          size <number of visible units> by <number of data cases>
+            n_hid (int)             : number of hidden units
+            lr_rbm (float)          : learning rate for rbm
+            lr_net (float)          : learning rate for neural net classifier
+            training_iters (int)    : number of training iterations
+            n_visible (int)         : number of visible units
+            train_momentum (float)  : momentum used in training
+
+        """
+        super(FFNeuralNet, self).__init__()
+        self.model_shape = (n_classes, n_hid)
+        self.mini_batch_size = mini_batch_size
+        self.lr_net = lr_net
+        self.n_iterations = training_iters
+        self.train_momentum = train_momentum
+
+        # Model params
+        self.rbm = rbm  # pre-train model initialization
+        self.model = None
+        self.d_phi_by_d_input_to_class = None
+
+    def reset_classifier(self):
+        """
+        """
+        self.model = (self.a4_rand(self.model_shape[::-1], np.prod(self.model_shape)) * 2 - 1) * 0.1
+        self.d_phi_by_d_input_to_class = np.zeros(self.model_shape)
+
+    def reset_model_gradient(self):
+        self.d_phi_by_d_input_to_class = np.zeros(self.model_shape)
+
+    def fit(self, X, y):
+        """
+        """
+        self._classification_phi_gradient(inputs=X, targets=y)
+        return self
+
+    def train(self, sequences):
+        """Implements optimize(..) from assignment. This trains a hid_to_class.
+
+        Notes:
+        * This uses mini-batches of size 100, momentum of 0.9, no weight decay, and no early stopping.
+
+        Args:
+            model_shape (tuple) : is the shape of the array of weights.
+            gradient_function   : a function that takes parameters <model> and <data> and returns the gradient
+                (or approximate gradient in the case of CD-1) of the function that we're maximizing.
+                Note the contrast with the loss function that we saw in PA3, which we were minimizing.
+                The returned gradient is an array of the same shape as the provided <model> parameter.
 
         Returns:
-            The returned value is the gradient approximation produced by CD-1. It's of the same shape as <rbm_w>.
+            numpy.array : matrix of weights of the trained model (hid_to_class)
         """
-        visible_data = self.sample_bernoulli(probabilities=visible_data)  # Question 8
-        hidden_probs = self.visible_state_to_hidden_probabilities(rbm_w=rbm_w, visible_state=visible_data)
-        hidden_states = self.sample_bernoulli(probabilities=hidden_probs)
-        initial = self.configuration_goodness_gradient(visible_state=visible_data, hidden_state=hidden_states)
-        visible_probs = self.hidden_state_to_visible_probabilities(rbm_w=rbm_w, hidden_state=hidden_states)
-        visible_states = self.sample_bernoulli(probabilities=visible_probs)
-        hidden_probs = self.visible_state_to_hidden_probabilities(rbm_w=rbm_w, visible_state=visible_states)
-        hidden_states = self.sample_bernoulli(probabilities=hidden_probs)  # Question 6
-        reconstruction = self.configuration_goodness_gradient(visible_state=visible_states, hidden_state=hidden_probs)
-        return initial - reconstruction
+        self.reset_classifier()
+        self.rbm.train(sequences)  # unsupervised pre-training using RBM
+
+        # calculate the hidden layer representation of the labeled data, rbm_w is input_to_hid
+        hidden_representation = logistic(np.dot(self.rbm.rbm_w, sequences['inputs']))
+        # train hid_to_class
+        momentum_speed = np.zeros(self.model_shape)
+        for i, (mini_batch_x, mini_batch_y) in enumerate(zip(self.batch(hidden_representation, self.mini_batch_size),
+                                                    self.batch(sequences['targets'], self.mini_batch_size))):
+            if i >= self.n_iterations:
+                break
+            self.reset_model_gradient()
+            self.fit(mini_batch_x, mini_batch_y)
+            momentum_speed = self.train_momentum * momentum_speed + self.d_phi_by_d_input_to_class
+            self.model += momentum_speed * self.lr_net
+
+    def predict(self, x_sequences):
+        """Predict a specific class from a given set of sequences.
+        """
+        return np.argmax(self.predict_sequences_proba(x_sequences=x_sequences), axis=0)
+
+    def predict_sequences_proba(self, x_sequences):
+        """Predict the probability of each class in a given set of sequences.
+
+        Returns:
+            numpy.array : class input (size: <number of classes> by <number of data cases>)
+        """
+        hid_input = np.dot(self.rbm.rbm_w, x_sequences['inputs'])  # size: <number of hidden units> by <number of data cases>
+        hid_output = logistic(hid_input)  # size: <number of hidden units> by <number of data cases>
+        return np.dot(self.model, hid_output)
+
+    def predict_sequences_log_proba(self, x_sequences):
+        """Predict the log probability of each class in a given set of sequences.
+
+        Returns:
+            numpy.array : log probability of each class (size: <number of classes, i.e. 10> by <number of data cases>)
+        """
+        class_input = self.predict_sequences_proba(x_sequences)
+        return self.predict_log_proba(class_input)
+
+    def predict_log_proba(self, class_input):
+        """Predicts log probability of each class given class inputs
+
+        Notes:
+        * log(sum(exp of class_input)) is what we subtract to get properly normalized log class probabilities.
+
+        Args:
+            class_input (numpy.array)   : probability of each class (see predict_sequences_proba(..))
+                                          (size: <1> by <number of data cases>)
+        """
+        class_normalizer = self.log_sum_exp_over_rows(class_input)
+        return class_input - np.tile(class_normalizer, (np.size(class_input, 0), 1))
+
+    def compute_error_and_loss(self, sequences, data_name=None):
+        """Computes error rate and loss for given dataset.
+
+        Notes:
+        * select the right log class probability using that sum then take the mean over all data cases.
+
+        Args:
+            sequences (numpy.array) : input
+            data_name (string)      : name of data used in logging (i.e. training, validation, testing)
+        """
+        class_input = self.predict_sequences_proba(x_sequences=sequences)
+        log_class_prob = self.predict_log_proba(class_input=class_input)
+        error_rate = np.mean(np.argmax(class_input, axis=0) != np.argmax(sequences['targets'], axis=0))
+        loss = -np.mean(np.sum(log_class_prob * sequences['targets'], 0))
+        self.log_results(error_rate, loss, data_name)
+
+    @staticmethod
+    def log_results(error_rate, loss, data_name):
+        data_name = 'given' if not data_name else data_name
+        print ('For the {0} data, the classification cross-entropy loss is {1}, and the classification error '
+               'rate (i.e. the misclassification rate) is {2}'.format(data_name, loss, error_rate))
+
+    def _classification_phi_gradient(self, inputs, targets):
+        """This returns the gradient of phi (a.k.a. negative of the loss) for the class input.
+
+        Notes:
+        * This is about a very simple model: there's an input layer, and a softmax output layer.
+          There are no hidden layers, and no biases.
+
+        Args:
+            input_to_class (numpy.ndarray)  : input to the components of the softmax. size: <number of classes>
+                                              by <number of data cases>
+            data (numpy.ndarray)            : has fields .inputs (matrix of size <number of input units> by
+                <number of data cases>) and .targets (matrix of size <number of classes> by <number of data cases>).
+        """
+        # log(sum(exp)) is what we subtract to get normalized log class probabilities.
+        class_input = np.dot(self.model, inputs)
+        # size: <1> by <number of data cases>
+        class_normalizer = self.log_sum_exp_over_rows(class_input)
+        # log of probability of each class. size: <number of classes> by <number of data cases>
+        log_class_prob = class_input - np.tile(class_normalizer, (np.size(class_input, 0), 1))
+        # probability of each class. Each column (i.e. each case) sums to 1.
+        # size: <number of classes> by <number of data cases>
+        class_prob = np.exp(log_class_prob)
+        # now: gradient computation
+        # size: <number of classes> by <number of data cases>
+        d_loss_by_d_class_input = -(targets - class_prob) / np.size(inputs, 1)
+        # size: <number of classes> by <number of input units>
+        d_loss_by_d_input_to_class = np.dot(d_loss_by_d_class_input, inputs.T)
+        self.d_phi_by_d_input_to_class = -d_loss_by_d_input_to_class
+
+
+class A4Run(A4Helper):
+    def __init__(self):
+        """
+        Notes:
+        * All sizes requested are transposed to account for column matrix as default vector in matlab.
+          a4_rand(..) then returns a transposed matrix to have the correct shape.
+        """
+        super(A4Run, self).__init__()
+        data = loadmat(os.path.join(os.getcwd(), 'Data/data.mat'))
+        self.data_sets = data['data']
+
+        self.test_rbm_w = self.a4_rand([256, 100], 0) * 2 - 1
+        self.small_test_rbm_w = self.a4_rand([256, 10], 0) * 2 - 1
+
+        self.data_1_case = self.sample_bernoulli(self.extract_mini_batch(self.data_sets['training'], 0, 1)['inputs'],
+                                                 report_calls=False)
+        self.data_10_cases = self.sample_bernoulli(self.extract_mini_batch(self.data_sets['training'], 99,
+                                                                           10)['inputs'], report_calls=False)
+        self.data_37_cases = self.sample_bernoulli(self.extract_mini_batch(self.data_sets['training'], 199,
+                                                                           37)['inputs'], report_calls=False)
+
+        self.test_hidden_state_1_case = self.sample_bernoulli(self.a4_rand([1, 100], 0), report_calls=False)
+        self.test_hidden_state_10_cases = self.sample_bernoulli(self.a4_rand([10, 100], 1), report_calls=False)
+        self.test_hidden_state_37_cases = self.sample_bernoulli(self.a4_rand([37, 100], 2), report_calls=False)
+
+    @staticmethod
+    def extract_mini_batch(data_set, start_i, n_cases):
+        mini_batch = dict()
+        mini_batch['inputs'] = data_set['inputs'][:, start_i: start_i + n_cases]
+        mini_batch['targets'] = data_set['targets'][:, start_i: start_i + n_cases]
+        return mini_batch
+
+    def a4_main(self, n_hid, lr_rbm, lr_classification, n_iterations, show_rbm_weights=False):
+        if np.prod(np.shape(self.data_sets)) != 1:
+            raise Exception('You must run a4_init before you do anything else.')
+
+        rbm = RBM(n_iterations, lr_rbm=lr_rbm, n_hid=n_hid, n_visible=256, train_momentum=0.9, mini_batch_size=100)
+        nn = FFNeuralNet(n_iterations, rbm, lr_net=lr_classification, n_hid=n_hid, n_classes=10, train_momentum=0.9,
+                         mini_batch_size=100)
+        nn.train(self.data_sets['training'])
+
+        if show_rbm_weights:
+            self.show_rbm(nn.rbm.rbm_w)
+
+        for data_name, data in self.data_sets.iteritems():
+            nn.compute_error_and_loss(data, data_name=data_name)
 
     def show_rbm(self, rbm_w):
         n_hid = np.size(rbm_w, 0)
@@ -221,89 +479,3 @@ class A4(object):
             print('Failed to display the RBM. No big deal (you do not need the display to finish the assignment), '
                   'but you are missing out on an interesting picture.')
             raise
-
-    def configuration_goodness(self, rbm_w, visible_state, hidden_state):
-        """
-
-        Args:
-            rbm_w (numpy.array)         : a matrix of size <number of hidden units> by <number of visible units>
-            visible_state (numpy.array) : a binary matrix of size <number of visible units> by <number of configurations
-                                          that we're handling in parallel>.
-            hidden_state (numpy.array)  : a binary matrix of size <number of hidden units> by <number of configurations
-                                          that we're handling in parallel>.
-
-        Returns:
-            float: the mean over cases of the goodness (negative energy) of the described configurations.
-        """
-        return np.mean(np.sum(np.dot(rbm_w, visible_state) * hidden_state, 0))
-
-    def configuration_goodness_gradient(self, visible_state, hidden_state):
-        """
-        Notes:
-        * You don't need the model parameters for this computation.
-
-        Args:
-            visible_state (numpy.array) : is a binary matrix of size <number of visible units> by
-                                          <number of configurations that we're handling in parallel>.
-            hidden_state (numpy.array)  : is a (possibly but not necessarily binary) matrix of size
-                                          <number of hidden units>
-                                          by <number of configurations that we're handling in parallel>.
-
-        Returns:
-            This returns the gradient of the mean configuration goodness (negative energy, as computed by function
-            <configuration_goodness>) with respect to the model parameters.
-            Thus, the returned value is of the same shape as the model parameters, which by the way are not provided to
-            this function. Notice that we're talking about the mean over data cases (as opposed to the sum over data
-            cases).
-        """
-        return np.dot(hidden_state, visible_state.T) / np.size(visible_state, 1)
-
-    def hidden_state_to_visible_probabilities(self, rbm_w, hidden_state):
-        """This takes in the (binary) states of the hidden units, and returns the activation probabilities
-         of the visible units, conditional on those states.
-        Args:
-            rbm_w (numpy.array)         : a matrix of size <number of hidden units> by <number of visible units>
-            hidden_state (numpy.array)  : is a binary matrix of size <number of hidden units> by <number of
-                                          configurations that we're handling in parallel>.
-
-        Returns:
-            The returned value is a matrix of size <number of visible units> by <number of configurations that we're
-            handling in parallel>.
-        """
-        return logistic(np.dot(rbm_w.T, hidden_state))
-
-    def visible_state_to_hidden_probabilities(self, rbm_w, visible_state):
-        """This takes in the (binary) states of the visible units, and returns the activation probabilities of the
-        hidden units conditional on those states.
-
-        Args:
-            rbm_w (numpy.array)         : is a matrix of size <number of hidden units> by <number of visible units>
-            visible_state (numpy.array) : is a binary matrix of size <number of visible units> by <number of
-                                          configurations that we're handling in parallel>.
-
-        Returns:
-            The returned value is a matrix of size <number of hidden units> by <number of configurations that we're
-            handling in parallel>.
-        """
-
-        return logistic(np.dot(rbm_w, visible_state))
-
-    def describe_matrix(self, matrix):
-        print('Describing a matrix of size {0} by {1}. The mean of the elements is {2}. '
-              'The sum of the elements is {3}'.format(np.size(matrix, 0), np.size(matrix, 1), np.mean(matrix),
-                                                      np.sum(matrix)))
-    @staticmethod
-    def partition_log(w):
-        """Computes logarithm (base e) of partition function for given size of rbm (hidden units)
-        Notes:
-        * Answer for question 10
-        
-        Args:
-            w (numpy.array) : given rbm weight matrix
-
-        Returns:
-            float : log of partition function
-        """
-        dec_2_bin = lambda x, n_bits: np.array(["{0:b}".format(val).zfill(n_bits) for val in x])
-        binary = np.array([list(val) for val in dec_2_bin(range(pow(2, np.size(w, 0))), np.size(w, 0))], dtype=float)
-        return np.log(np.sum(np.prod((np.exp(np.dot(binary, w)) + 1).T, axis=0)))
