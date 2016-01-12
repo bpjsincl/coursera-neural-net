@@ -1,3 +1,9 @@
+"""Implements Assignment 4 for Geoffrey Hinton's Neural Networks Course offered through Coursera.
+
+Abstracts classifiers developed in the course into, a more pythonic Sklearn framework. And cleans up a lot of the
+given code.
+"""
+
 import os
 import matplotlib.pyplot as plt
 
@@ -146,30 +152,13 @@ class A4Helper(object):
               'The sum of the elements is {3}'.format(np.size(matrix, 0), np.size(matrix, 1), np.mean(matrix),
                                                       np.sum(matrix)))
 
-    @staticmethod
-    def partition_log(w):
-        """Computes logarithm (base e) of partition function for given size of rbm (hidden units)
-
-        Notes:
-        * Answer for question 10
-
-        Args:
-            w (numpy.array) : given rbm weight matrix
-
-        Returns:
-            float : log of partition function
-        """
-        dec_2_bin = lambda x, n_bits: np.array(["{0:b}".format(val).zfill(n_bits) for val in x])
-        binary = np.array([list(val) for val in dec_2_bin(range(pow(2, np.size(w, 0))), np.size(w, 0))], dtype=float)
-        return np.log(np.sum(np.prod((np.exp(np.dot(binary, w)) + 1).T, axis=0)))
-
 
 class RBM(BaseEstimator, A4Helper):
     """Implements pre-training for the RBM using CD-1 gradient function.
     """
     def __init__(self,
-                 training_iters,
-                 lr_rbm=0.02,
+                 training_iters=1,
+                 lr_rbm=0.01,
                  n_hid=300,
                  n_visible=256,
                  train_momentum=0.9,
@@ -260,8 +249,8 @@ class FFNeuralNet(BaseEstimator, A4Helper):
     """Implements Feedforward Neural Network from Assignment 4.
     """
     def __init__(self,
-                 training_iters,
-                 rbm,
+                 rbm_w=None,
+                 training_iters=1,
                  lr_net=0.02,
                  n_hid=300,
                  n_classes=10,
@@ -270,14 +259,13 @@ class FFNeuralNet(BaseEstimator, A4Helper):
         """Initialize neural network.
 
         Args:
+            rbm_w (numpy.array)     : weight matrix of RBM
             training_iters (int)    : number of training iterations
-            rbm (RBM)               : RBM model used for pre-training
             lr_net (float)          : learning rate for neural net classifier
             n_hid (int)             : number of hidden units
             n_classes (int)         : number of classes
             train_momentum (float)  : momentum used in training
             mini_batch_size (int)   : size of training batches
-
         """
         super(FFNeuralNet, self).__init__()
         self.model_shape = (n_classes, n_hid)
@@ -287,7 +275,8 @@ class FFNeuralNet(BaseEstimator, A4Helper):
         self.train_momentum = train_momentum
 
         # Model params
-        self.rbm = rbm  # pre-train model initialization
+        assert rbm_w is not None
+        self.rbm_w = rbm_w
         self.model = None
         self.d_phi_by_d_input_to_class = None
 
@@ -320,13 +309,11 @@ class FFNeuralNet(BaseEstimator, A4Helper):
             (numpy.array) : matrix of weights of the trained model (hid_to_class)
         """
         self.reset_classifier()
-        self.rbm.train(sequences)  # unsupervised pre-training using RBM
-
         # calculate the hidden layer representation of the labeled data, rbm_w is input_to_hid
-        hidden_representation = logistic(np.dot(self.rbm.rbm_w, sequences['inputs']))
+        hidden_representation = logistic(np.dot(self.rbm_w, sequences['inputs']))
         momentum_speed = np.zeros(self.model_shape)
         for i, (mini_batch_x, mini_batch_y) in enumerate(zip(self.batch(hidden_representation, self.mini_batch_size),
-                                                    self.batch(sequences['targets'], self.mini_batch_size))):
+                                                         self.batch(sequences['targets'], self.mini_batch_size))):
             if i >= self.n_iterations:
                 break
             self.fit(mini_batch_x, mini_batch_y)
@@ -344,7 +331,7 @@ class FFNeuralNet(BaseEstimator, A4Helper):
         Returns:
             (numpy.array) : class input (size: <number of classes> by <number of data cases>)
         """
-        hid_input = np.dot(self.rbm.rbm_w, x_sequences['inputs'])  # size: <number of hidden units> by <number of data cases>
+        hid_input = np.dot(self.rbm_w, x_sequences['inputs'])  # size: <number of hidden units> by <number of data cases>
         hid_output = logistic(hid_input)  # size: <number of hidden units> by <number of data cases>
         return np.dot(self.model, hid_output)
 
@@ -473,22 +460,62 @@ class A4Run(A4Helper):
         mini_batch['targets'] = data_set['targets'][:, start_i: start_i + n_cases]
         return mini_batch
 
-    def a4_main(self, n_hid, lr_rbm, lr_classification, n_iterations, show_rbm_weights=False):
+    def build_neural_net_model(self, n_hid, lr_rbm, lr_net, training_iters, n_classes, train_momentum,
+                               n_visible, mini_batch_size, show_rbm_weights):
+        """Runs pre-training and returns neural network model.
+
+        Args:
+            n_hid (int)             : number of hidden units
+            lr_rbm (float)          : learning rate for RBM model
+            lr_net (float)          : learning rate for neural net classifier
+            training_iters (int)    : number of training iterations
+            n_classes (int)         : number of classes
+            train_momentum (float)  : momentum used in training
+            n_visible (int)         : number of visible units
+            mini_batch_size (int)   : size of training batches
+            show_rbm_weights (bool) : display rbm weights in colour plot with same dimension of rbm_w
+
+        Returns:
+            FFNeuralNet : instance of feedforward neural network classifier
+        """
+        rbm = RBM(training_iters=training_iters, lr_rbm=lr_rbm, n_hid=n_hid, n_visible=n_visible,
+                  train_momentum=train_momentum, mini_batch_size=mini_batch_size)
+        rbm.train(self.data_sets['training'])
+        if show_rbm_weights:
+            self.show_rbm(rbm.rbm_w)
+        return FFNeuralNet(training_iters=training_iters, rbm_w=rbm.rbm_w, lr_net=lr_net, n_hid=n_hid,
+                           n_classes=n_classes, train_momentum=train_momentum, mini_batch_size=mini_batch_size)
+
+    def a4_main(self, n_hid, lr_rbm, lr_classification, n_iterations, show_rbm_weights=False, train_momentum=0.9):
+        """Runs training and computes error and loss of training, testing, and validation training sets.
+        """
         if np.prod(np.shape(self.data_sets)) != 1:
             raise Exception('You must run a4_init before you do anything else.')
-
-        rbm = RBM(n_iterations, lr_rbm=lr_rbm, n_hid=n_hid, n_visible=256, train_momentum=0.9, mini_batch_size=100)
-        nn = FFNeuralNet(n_iterations, rbm, lr_net=lr_classification, n_hid=n_hid, n_classes=10, train_momentum=0.9,
-                         mini_batch_size=100)
+        nn = self.build_neural_net_model(n_hid=n_hid, lr_rbm=lr_rbm, lr_net=lr_classification,
+                                         training_iters=n_iterations, n_classes=10,
+                                         train_momentum=train_momentum, n_visible=256, mini_batch_size=100,
+                                         show_rbm_weights=show_rbm_weights)
         nn.train(self.data_sets['training'])
-
-        if show_rbm_weights:
-            self.show_rbm(nn.rbm.rbm_w)
 
         for data_name, data in self.data_sets.iteritems():
             nn.compute_error_and_loss(data, data_name=data_name)
 
+    def train_rbm_test_cases(self, data_cases):
+        """Runs training on given test case. Answer for question 6 and 7 when called with describe_matrix(..)
+        """
+        rbm = RBM()
+        rbm.rbm_w = self.test_rbm_w
+        rbm.fit(data_cases)
+        return rbm.gradient
+
+    def question_10(self):
+        """Prints logarithm (base e) of partition function for small_test_rbm_w. Answer for question 10.
+        """
+        print "Log (base e) of partition function for small_test_rbm_w is :", self.partition_log(self.small_test_rbm_w)
+
     def show_rbm(self, rbm_w):
+        """Display rbm weights in colour plot with same dimension of rbm_w.
+        """
         n_hid = np.size(rbm_w, 0)
         n_rows = int(np.ceil(np.sqrt(n_hid)))
         blank_lines = 4
@@ -510,3 +537,20 @@ class A4Run(A4Helper):
             print('Failed to display the RBM. No big deal (you do not need the display to finish the assignment), '
                   'but you are missing out on an interesting picture.')
             raise
+
+    @staticmethod
+    def partition_log(w):
+        """Computes logarithm (base e) of partition function for given size of rbm (hidden units)
+
+        Notes:
+        * Answer for question 10
+
+        Args:
+            w (numpy.array) : given rbm weight matrix
+
+        Returns:
+            float : log of partition function
+        """
+        dec_2_bin = lambda x, n_bits: np.array(["{0:b}".format(val).zfill(n_bits) for val in x])
+        binary = np.array([list(val) for val in dec_2_bin(range(pow(2, np.size(w, 0))), np.size(w, 0))], dtype=float)
+        return np.log(np.sum(np.prod((np.exp(np.dot(binary, w)) + 1).T, axis=0)))
