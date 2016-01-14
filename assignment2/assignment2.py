@@ -1,3 +1,8 @@
+"""Implements Assignment 2 for Geoffrey Hinton's Neural Networks Course offered through Coursera.
+
+Abstracts classifiers developed in the course into, a more pythonic Sklearn framework. And cleans up a lot of the
+given code.
+"""
 import time
 
 import numpy as np

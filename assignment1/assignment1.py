@@ -1,3 +1,5 @@
+"""Implements Assignment 1 for Geoffrey Hinton's Neural Networks Course offered through Coursera.
+"""
 import numpy as np
 import matplotlib.pyplot as plt
 
