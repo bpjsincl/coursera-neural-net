@@ -1,9 +1,6 @@
 # Python
 *.pyc
 
-# IPython Notebook
-*.ipynb
-
 # Matlab files
 *.mat
 *.m
