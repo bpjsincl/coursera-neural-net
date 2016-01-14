@@ -4,17 +4,19 @@ Abstracts classifiers developed in the course into, a more pythonic Sklearn fram
 given code.
 """
 import time
+import os
 
 import numpy as np
 from sklearn.base import BaseEstimator
 
-from courseraneuralnet.utility.utils import zip_safe
+from courseraneuralnet.utility.utils import zip_safe, loadmat
 
 __all__ = ['EvaluateCrossEntropy',
            'NeuralNet',
            'load_data',
            'display_nearest_words',
-           'word_distance'
+           'word_distance',
+           'A2Run'
            ]
 
 
@@ -357,30 +359,29 @@ class EvaluateCrossEntropy(object):
         return -sum(sum(np.multiply(expanded_target, np.log(output_layer_state + np.exp(-30))))) / float(datasetsize)
 
 
-def word_distance(words, model, vocab):
+def word_distance(word1, word2, model, vocab):
     """Shows the L2 distance between word1 and word2 in the word_embedding_weights.
 
     Example:
     -----
-        word_distance('school', 'university', model)
+        word_distance('school', 'university', model, vocab)
 
     Args:
-        words (tuple) :
-            word1 (str) : The first word as a string.
-            word2 (str) : The second word as a string.
+        word1 (str)         : The first word as a string.
+        word2 (str)         : The second word as a string.
         model (NeuralNet)   : Model returned by estimator
         vocab (numpy.array) : vocabulary in model
 
     Return:
         distance
     """
-    idxs = np.array([np.where(vocab == word)[0][0] if np.where(vocab == word)[0] else None for word in sentence])
+    words = (word1, word2)
+    idxs = np.array([np.where(vocab == word)[0][0] if np.where(vocab == word)[0] else None for word in words])
     for i, vocab_idx in enumerate(idxs):
         if not vocab_idx:
             print 'Word %s not in vocabulary.\n' % words[i]
             return
-
-    diff = model.word_embedding_weights[idxs[0]][-1] - model.word_embedding_weights[idxs[1]][-1]
+    diff = model.word_embedding_weights[idxs[0], :] - model.word_embedding_weights[idxs[1], :]
     return np.sqrt(sum(np.multiply(diff, diff)))
 
 
@@ -413,18 +414,48 @@ def display_nearest_words(word, model, k, vocab):
         print 'Word\t: %s \nDistance: %.2f\n' % (vocab[order[i]], distance[order[i]])
 
 
-def run_evaluation(data, **estimator_params):
-    """Runs 4-gram Neural Network evaluation.
-
-    Args:
-        data (dict)             : From mat file.
-        estimator_params (dict) : Contains parameters for NN. See NeuralNet(..)
+class A2Run(object):
+    """Runs assignment 2.
     """
-    start_time = time.time()
-    sequences = load_data(data, batch_size=100)
-    classifier = NeuralNet(vocab_size=len(sequences['vocab']),
-                           num_words=len(sequences['train']['input']),
-                           **estimator_params)
-    classifier.train(sequences)
-    print 'Training took %.2f seconds\n', start_time - time.time()
-    EvaluateCrossEntropy(classifier).run_evaluation(sequences)
+    def __init__(self):
+        """Initialize data set and all test cases for assignment.
+        """
+        data = loadmat(os.path.join(os.getcwd(), 'Data/data.mat'))
+        self.data_sets = data['data']
+        self.classifier = None
+
+    def run_evaluation(self, **estimator_params):
+        """Runs 4-gram Neural Network evaluation.
+
+        Args:
+            estimator_params (dict) : Contains parameters for NN. See NeuralNet(..)
+        """
+        start_time = time.time()
+        sequences = load_data(self.data_sets, batch_size=100)
+        self.classifier = NeuralNet(vocab_size=len(sequences['vocab']),
+                                    num_words=len(sequences['train']['input']),
+                                    **estimator_params)
+        self.classifier.train(sequences)
+        print 'Training took %.2f seconds\n', start_time - time.time()
+        EvaluateCrossEntropy(self.classifier).run_evaluation(sequences)
+
+    def a2_main(self, epochs=1, learning_rate=.10, momentum=0.9, numhid1=50, numhid2=200, init_wt=0.01,
+                validation_ce_after=1000):
+        """Runs training and computes error and loss of training, testing, and validation training sets.
+
+        Args:
+            wd_coeff (float)        : weight decay coefficient
+            n_hid (int)             : number of hidden units
+            n_iterations (int)      : number of training iterations
+            lr_net (float)          : learning rate for neural net classifier
+            train_momentum (float)  : momentum used in training
+            early_stopping (bool)   : saves model at validation error minimum
+            mini_batch_size (int)   : size of training batches
+        """
+        self.run_evaluation(epochs=epochs,
+                            learning_rate=learning_rate,
+                            momentum=momentum,
+                            numhid1=numhid1,
+                            numhid2=numhid2,
+                            init_wt=init_wt,
+                            validation_ce_after=validation_ce_after)
