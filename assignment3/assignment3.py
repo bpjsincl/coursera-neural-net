@@ -339,10 +339,6 @@ class A3Run(object):
     """
     def __init__(self):
         """Initialize data set and all test cases for assignment.
-
-        Notes:
-        * All sizes requested are transposed to account for column matrix as default vector in matlab.
-          a4_rand(..) then returns a transposed matrix to have the correct shape.
         """
         data = loadmat(os.path.join(os.getcwd(), 'Data/data.mat'))
         self.data_sets = data['data']
