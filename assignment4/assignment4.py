@@ -306,15 +306,23 @@ class FFNeuralNet(BaseEstimator, A4Helper):
         """
         return np.argmax(self.predict_sequences_proba(x_sequences=x_sequences), axis=0)
 
+    def predict_proba(self, inputs):
+        """Predict the probability of each class given data inputs.
+
+        Returns:
+            (numpy.array) : probability of classes
+        """
+        hid_input = np.dot(self.rbm_w, inputs)  # size: <number of hidden units> by <number of data cases>
+        hid_output = logistic(hid_input)  # size: <number of hidden units> by <number of data cases>
+        return np.dot(self.model, hid_output)
+
     def predict_sequences_proba(self, x_sequences):
         """Predict the probability of each class in a given set of sequences.
 
         Returns:
             (numpy.array) : class input (size: <number of classes> by <number of data cases>)
         """
-        hid_input = np.dot(self.rbm_w, x_sequences['inputs'])  # size: <number of hidden units> by <number of data cases>
-        hid_output = logistic(hid_input)  # size: <number of hidden units> by <number of data cases>
-        return np.dot(self.model, hid_output)
+        return self.predict_proba(x_sequences['inputs'])
 
     def predict_sequences_log_proba(self, x_sequences):
         """Predict the log probability of each class in a given set of sequences.
@@ -378,17 +386,9 @@ class FFNeuralNet(BaseEstimator, A4Helper):
         """
         # log(sum(exp)) is what we subtract to get normalized log class probabilities.
         class_input = np.dot(self.model, inputs)
-        # size: <1> by <number of data cases>
-        class_normalizer = log_sum_exp_over_rows(class_input)
-        # log of probability of each class. size: <number of classes> by <number of data cases>
-        log_class_prob = class_input - np.tile(class_normalizer, (np.size(class_input, 0), 1))
-        # probability of each class. Each column (i.e. each case) sums to 1.
-        # size: <number of classes> by <number of data cases>
-        class_prob = np.exp(log_class_prob)
+        class_prob = np.exp(self.predict_log_proba(class_input))
         # now: gradient computation
-        # size: <number of classes> by <number of data cases>
         d_loss_by_d_class_input = -(targets - class_prob) / np.size(inputs, 1)
-        # size: <number of classes> by <number of input units>
         d_loss_by_d_input_to_class = np.dot(d_loss_by_d_class_input, inputs.T)
         self.d_phi_by_d_input_to_class = -d_loss_by_d_input_to_class
 
