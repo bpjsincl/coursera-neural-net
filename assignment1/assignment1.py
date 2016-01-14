@@ -1,4 +1,6 @@
 """Implements Assignment 1 for Geoffrey Hinton's Neural Networks Course offered through Coursera.
+
+* Implements linear Perceptron for two class problem
 """
 import numpy as np
 import matplotlib.pyplot as plt

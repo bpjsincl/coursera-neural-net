@@ -1,5 +1,10 @@
 """Implements Assignment 4 for Geoffrey Hinton's Neural Networks Course offered through Coursera.
 
+* Trains a Feedforward neural network with pretraining using Restricted Boltzman Machines (RBMs)
+* The RBM is used as the visible-to-hidden layer in a network exactly like the one made in programming assignment 3.
+* The RBM is trained using Contrastive Divergence gradient estimator with 1 full Gibbs update, a.k.a. CD-1.
+* Recognizes USPS handwritten digits.
+
 Abstracts classifiers developed in the course into, a more pythonic Sklearn framework. And cleans up a lot of the
 given code.
 """

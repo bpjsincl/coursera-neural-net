@@ -1,5 +1,9 @@
 """Implements Assignment 2 for Geoffrey Hinton's Neural Networks Course offered through Coursera.
 
+* Implements a basic framework for training neural nets with mini-batch gradient descent for a language model.
+* Assignment covers hyperparameter search and observations through average cross entropy error.
+    * i.e. number of training epochs, embedding and hidden layer size, training momentum
+
 Abstracts classifiers developed in the course into, a more pythonic Sklearn framework. And cleans up a lot of the
 given code.
 """

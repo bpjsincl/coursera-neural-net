@@ -1,5 +1,9 @@
 """Implements Assignment 3 for Geoffrey Hinton's Neural Networks Course offered through Coursera.
 
+* Trains a simple Feedforward Neural Network with Backpropogation, for recognizing USPS handwritten digits.
+* Assignment looks into efficient optimization, and into effective regularization.
+* Recognizes USPS handwritten digits.
+
 Abstracts classifiers developed in the course into, a more pythonic Sklearn framework. And cleans up a lot of the
 given code.
 """
