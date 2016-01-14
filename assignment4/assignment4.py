@@ -10,7 +10,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from sklearn.base import BaseEstimator
 
-from courseraneuralnet.utility.utils import loadmat, logistic
+from courseraneuralnet.utility.utils import loadmat, logistic, log_sum_exp_over_rows, batches
 
 __all__ = ['A4Run']
 
@@ -58,25 +58,6 @@ class A4Helper(object):
             print 'sample_bernoulli() was called with a matrix of size {0} by {1}.'.format(*np.shape(probabilities))
         seed = np.sum(probabilities)
         return np.array(probabilities > self.a4_rand(np.shape(probabilities)[::-1], seed), dtype=float)
-
-    @staticmethod
-    def batch(iterable, n=1):
-        """Yields specified number of mini batches (more efficient than extract_mini_batch(..)
-
-        Args:
-            iterable (numpy.array)  : helper function for splitting array into batches.
-            n (int)                 : number of batches.
-        """
-        l = np.size(iterable, 1)
-        for ndx in range(0, l, n):
-            yield iterable[:, ndx:min(ndx + n, l)]
-
-    @staticmethod
-    def log_sum_exp_over_rows(matrix):
-        """This computes log(sum(exp(a), 1)) in a numerically stable way"""
-        maxs_small = np.max(matrix, axis=0)
-        maxs_big = np.tile(maxs_small, (np.size(matrix, 0), 1))
-        return np.log(np.sum(np.exp(matrix - maxs_big), axis=0)) + maxs_small
 
     @staticmethod
     def configuration_goodness(rbm_w, visible_state, hidden_state):
@@ -237,7 +218,7 @@ class RBM(BaseEstimator, A4Helper):
         """
         self.reset_classifier()
         momentum_speed = np.zeros(self.model_shape)
-        for i, mini_batch_x in enumerate(self.batch(sequences['inputs'], self.mini_batch_size)):
+        for i, mini_batch_x in enumerate(batches(sequences['inputs'], self.mini_batch_size)):
             if i >= self.n_iterations:
                 break
             self.fit(mini_batch_x)
@@ -312,8 +293,8 @@ class FFNeuralNet(BaseEstimator, A4Helper):
         # calculate the hidden layer representation of the labeled data, rbm_w is input_to_hid
         hidden_representation = logistic(np.dot(self.rbm_w, sequences['inputs']))
         momentum_speed = np.zeros(self.model_shape)
-        for i, (mini_batch_x, mini_batch_y) in enumerate(zip(self.batch(hidden_representation, self.mini_batch_size),
-                                                         self.batch(sequences['targets'], self.mini_batch_size))):
+        for i, (mini_batch_x, mini_batch_y) in enumerate(zip(batches(hidden_representation, self.mini_batch_size),
+                                                             batches(sequences['targets'], self.mini_batch_size))):
             if i >= self.n_iterations:
                 break
             self.fit(mini_batch_x, mini_batch_y)
@@ -357,7 +338,7 @@ class FFNeuralNet(BaseEstimator, A4Helper):
         Returns:
             (numpy.array) : log probability of each class.
         """
-        class_normalizer = self.log_sum_exp_over_rows(class_input)
+        class_normalizer = log_sum_exp_over_rows(class_input)
         return class_input - np.tile(class_normalizer, (np.size(class_input, 0), 1))
 
     def compute_error_and_loss(self, sequences, data_name=None):
@@ -398,7 +379,7 @@ class FFNeuralNet(BaseEstimator, A4Helper):
         # log(sum(exp)) is what we subtract to get normalized log class probabilities.
         class_input = np.dot(self.model, inputs)
         # size: <1> by <number of data cases>
-        class_normalizer = self.log_sum_exp_over_rows(class_input)
+        class_normalizer = log_sum_exp_over_rows(class_input)
         # log of probability of each class. size: <number of classes> by <number of data cases>
         log_class_prob = class_input - np.tile(class_normalizer, (np.size(class_input, 0), 1))
         # probability of each class. Each column (i.e. each case) sums to 1.

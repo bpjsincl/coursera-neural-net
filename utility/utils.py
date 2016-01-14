@@ -5,7 +5,9 @@ import numpy as np
 
 __all__ = ['zip_safe',
            'loadmat',
-           'logistic']
+           'logistic',
+           'log_sum_exp_over_rows',
+           'batches']
 
 
 def zip_safe(*lists):
@@ -50,3 +52,21 @@ def _todict(matobj):
 
 def logistic(x):
     return 1. / (1. + np.exp(-x))
+
+
+def log_sum_exp_over_rows(a):
+    """Computes log(sum(np.exp(a), 1)) in a numerically stable way."""
+    col_maxs = np.max(a, axis=0)
+    return np.log(sum(np.exp(a - np.tile(col_maxs, (np.size(a, 0), 1))), 0)) + col_maxs
+
+
+def batches(iterable, n=1):
+    """Yields specified number of mini batches (more efficient than extract_mini_batch(..)
+
+    Args:
+        iterable (numpy.array)  : helper function for splitting array into batches.
+        n (int)                 : number of batches.
+    """
+    l = np.size(iterable, 1)
+    for ndx in range(0, l, n):
+        yield iterable[:, ndx:min(ndx + n, l)]
